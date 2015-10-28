@@ -2,7 +2,8 @@ program AllaKore_Remote_Server;
 
 uses
   Forms,
-  Form_Main in 'Form_Main.pas' {frm_Main};
+  Form_Main in 'Form_Main.pas' {frm_Main},
+  uUteisServer in 'uUteisServer.pas';
 
 {$R *.res}
 

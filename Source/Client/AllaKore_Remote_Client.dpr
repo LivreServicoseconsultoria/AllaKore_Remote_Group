@@ -8,7 +8,11 @@ uses
   Vcl.Themes,
   Vcl.Styles,
   Form_Chat in 'Form_Chat.pas' {frm_Chat},
-  Form_ShareFiles in 'Form_ShareFiles.pas' {frm_ShareFiles};
+  Form_ShareFiles in 'Form_ShareFiles.pas' {frm_ShareFiles},
+  Form_Config in 'Form_Config.pas' {frm_Config},
+  uUteis in '..\Units\uUteis.pas',
+  ULanguage in '..\Units\ULanguage.pas',
+  uProxy in 'uProxy.pas';
 
 {$R *.res}
 
