@@ -13,8 +13,6 @@ object frm_Chat: Tfrm_Chat
   FormStyle = fsStayOnTop
   OldCreateOrder = False
   Position = poDesigned
-  ScreenSnap = True
-  SnapBuffer = 50
   OnCreate = FormCreate
   PixelsPerInch = 96
   TextHeight = 13

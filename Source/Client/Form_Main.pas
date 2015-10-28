@@ -24,7 +24,7 @@ uses
   Vcl.Graphics, Vcl.Controls, Vcl.Forms, Vcl.Dialogs, Vcl.Imaging.pngimage, Vcl.ExtCtrls,
   Vcl.StdCtrls, Vcl.Buttons, System.Win.ScktComp, StreamManager, ZLIBEX,
   sndkey32, IdBaseComponent, Vcl.AppEvnts, Vcl.ComCtrls, Winapi.MMSystem,
-  Registry, Vcl.Menus, Vcl.Mask, Clipbrd;
+  Registry, Vcl.Menus, Vcl.Mask, Clipbrd, uProxy;
 
 type
   TThread_Connection_Main = class(TThread)
@@ -86,6 +86,12 @@ type
     About_BitBtn: TBitBtn;
     TargetID_MaskEdit: TMaskEdit;
     Clipboard_Timer: TTimer;
+    pm1: TPopupMenu;
+    mniConfig: TMenuItem;
+    mniShow: TMenuItem;
+    mniMinimiser: TMenuItem;
+    mniClose: TMenuItem;
+    TicServer: TTrayIcon;
     procedure Connect_BitBtnClick(Sender: TObject);
     procedure FormCreate(Sender: TObject);
     procedure Reconnect_TimerTimer(Sender: TObject);
@@ -105,6 +111,11 @@ type
     procedure About_BitBtnClick(Sender: TObject);
     procedure TargetID_MaskEditKeyPress(Sender: TObject; var Key: Char);
     procedure Clipboard_TimerTimer(Sender: TObject);
+    procedure mniConfigClick(Sender: TObject);
+    procedure mniShowClick(Sender: TObject);
+    procedure mniMinimiserClick(Sender: TObject);
+    procedure mniCloseClick(Sender: TObject);
+    procedure TicServerDblClick(Sender: TObject);
   private
     { Private declarations }
   public
@@ -128,17 +139,14 @@ var
   Accessed, LostConnection: Boolean;
   OldClipboardText: string;
 
-const
-  Host = 'localhost';     // Host of Sockets  (Insert the IP Address or DNS of your Server)
-  Port = 3898;            // Port of Sockets
-  ConnectionTimeout = 60; // Timeout of connection (in secound)
 
 implementation
 
 {$R *.dfm}
 
 uses
-  Form_Password, Form_RemoteScreen, Form_Chat, Form_ShareFiles;
+  Form_Password, Form_RemoteScreen, Form_Chat, Form_ShareFiles, Form_Config,
+  uUteis;
 
 constructor TThread_Connection_Main.Create(aSocket: TCustomWinSocket);
 begin
@@ -403,7 +411,6 @@ begin
   Files_Socket.Close;
 
   Viewer := false;
-
   // Restore Wallpaper
   if (Accessed) then
   begin
@@ -471,6 +478,12 @@ begin
 
   Connect_BitBtn.Enabled := true;
 
+  //Marcones Freitas - 17/10/2015 -> Ao Conectar se as Variaveis estiverem preenchidas Abre a tela de Senha
+  if (vParID <> '') and (vParSenha <> '' )then
+     begin
+      TargetID_MaskEdit.Text := vParID;
+      frm_Main.Main_Socket.Socket.SendText('<|CHECKIDPASSWORD|>' + TargetID_MaskEdit.Text + '<|>' + vParSenha + '<<|');
+     end;
 end;
 
 // Compress Stream with zLib
@@ -493,7 +506,6 @@ begin
   try
     InputStream := TMemoryStream.Create;
     OutputStream := TMemoryStream.Create;
-
     InputStream.LoadFromStream(SrcStream);
     count := InputStream.Size;
     getmem(inbuffer, count);
@@ -612,42 +624,63 @@ begin
 end;
 
 procedure Tfrm_Main.FormCreate(Sender: TObject);
-var
-  _Host: Ansistring;
-  _Port: Integer;
 begin
+  try
+   if ActiveProcess(Application.Title) then
+      raise Exception.Create('There is already a process running');
+
+   FirstExecute := True;
+  except on E: Exception do
+    Begin
+      ShowMessage(E.Message);
+      Application.Terminate;
+    End;
+  end;
+  FirstExecute := True;
   // Insert version on Caption of the Form
   Caption := Caption + ' - ' + GetAppVersionStr;
 
+  //Marcones Freitas - 17/10/2015 -> Se o Client foi Aberto pelo Servidor, Alimenta as Variaveis
+  if (ParamCount > 0) then
+      begin
+       vParID    := ParamStr(1);
+       vParSenha := ParamStr(2);
+      end;
 
-  // Reads two exe params - host and port. If not supplied uses constants. to use: client.exe HOST PORT, for ex. AllaKore_Remote_Client.exe 192.168.16.201 3398
-  if (ParamStr(1) <> '') then
-    _Host := ParamStr(1)
+  //Marcones Freitas - 16/10/2015 -> Se for a primeira Execução do Client, abre a Tela de Configurações para setar os parametros do arquivo ini
+  if (GetIni(ExtractFilePath(Application.ExeName) + Application.Title+'.ini', cGeneral, cHost, True) = '') or
+     (GetIni(ExtractFilePath(Application.ExeName) + Application.Title+'.ini', cGeneral, cHost, True) = '0') then
+     begin
+       Reconnect_Timer.Enabled := False;
+       frm_Config              := Tfrm_Config.Create(self);
+       frm_Config.ShowModal;
+       FreeAndNil(frm_Config);
+     end;
+
+  //Marcones Freitas - 16/10/2015 -> Get the Parameters file ini
+  Host              := GetIni(ExtractFilePath(Application.ExeName) + Application.Title+'.ini', cGeneral, cHost, True);
+  Port              := StrToInt(GetIni(ExtractFilePath(Application.ExeName) + Application.Title+'.ini', cGeneral, cPort, True));
+  vGroup            := GetIni(ExtractFilePath(Application.ExeName) + Application.Title+'.ini', cGeneral, cGroup, True);
+  vMachine          := GetIni(ExtractFilePath(Application.ExeName) + Application.Title+'.ini', cGeneral, cMachine, True);
+  ConnectionTimeout := StrToInt(GetIni(ExtractFilePath(Application.ExeName) + Application.Title+'.ini', cGeneral, cConnectTimeOut, True));
+  Proxy             := GetIni(ExtractFilePath(Application.ExeName) + Application.Title + '.ini', cGeneral, cProxy, true) = '1';
+
+  if Proxy then
+    begin
+      HostProxy := GetIni(ExtractFilePath(Application.ExeName) + Application.Title + '.ini', cGeneral, cHostProxy, true);
+      PortProxy := StrToInt(GetIni(ExtractFilePath(Application.ExeName) + Application.Title + '.ini', cGeneral, cPortProxy, true));
+    end
   else
-    _Host := Host;
+    begin
+      HostProxy := '';
+      PortProxy := 0;
+    end;
 
-  if (ParamStr(2) <> '') then
-    _Port := StrToIntDef(ParamStr(2), Port)
-  else
-    _Port := Port;
-
-
-  // Define Host, Port and Timeout of Sockets
-  Main_Socket.Host := _Host;
-  Main_Socket.Port := _Port;
-
-  Desktop_Socket.Host := _Host;
-  Desktop_Socket.Port := _Port;
-
-  Keyboard_Socket.Host := _Host;
-  Keyboard_Socket.Port := _Port;
-
-  Files_Socket.Host := _Host;
-  Files_Socket.Port := _Port;
-  //
-  ResolutionTargetWidth := 986;
-  ResolutionTargetHeight := 600;
-
+  SetLanguage;
+  Reconnect_Timer.Enabled := True;
+  SetHostPortGroupMach;
+  ResolutionTargetWidth   := 986;
+  ResolutionTargetHeight  := 600;
   SetOffline;
   Reconnect;
 end;
@@ -687,7 +720,7 @@ begin
 
   Timeout_Timer.Enabled := true;
 
-  Socket.SendText('<|MAINSOCKET|>');
+  Socket.SendText('<|MAINSOCKET|>'+'<|GROUP|>' + vGroup + '<<|'+'<|MACHINE|>' + vMachine + '<<|');
 
   Thread_Connection_Main := TThread_Connection_Main.Create(Socket);
   Thread_Connection_Main.Resume;
@@ -721,6 +754,30 @@ begin
   CloseSockets;
 end;
 
+procedure Tfrm_Main.mniCloseClick(Sender: TObject);
+begin
+  CloseAplication;
+end;
+
+procedure Tfrm_Main.mniConfigClick(Sender: TObject);
+begin
+ Reconnect_Timer.Enabled := False;
+ frm_Config              := Tfrm_Config.Create(self);
+ frm_Config.ShowModal;
+ FreeAndNil(frm_Config);
+ Reconnect_Timer.Enabled := True;
+end;
+
+procedure Tfrm_Main.mniMinimiserClick(Sender: TObject);
+begin
+ HideApplication;
+end;
+
+procedure Tfrm_Main.mniShowClick(Sender: TObject);
+begin
+  ShowApplication;
+end;
+
 procedure Tfrm_Main.TargetID_MaskEditKeyPress(Sender: TObject; var Key: Char);
 begin
   if Key = #13 then
@@ -743,6 +800,11 @@ begin
     Connect_BitBtn.Click;
     Key := #0;
   end
+end;
+
+procedure Tfrm_Main.TicServerDblClick(Sender: TObject);
+begin
+ ShowApplication;
 end;
 
 procedure Tfrm_Main.Timeout_TimerTimer(Sender: TObject);
@@ -781,6 +843,7 @@ begin
   while Socket.Connected do
   begin
 
+  
     try
       if (Socket.ReceiveLength > 0) then
       begin
@@ -1103,6 +1166,7 @@ begin
 
 
 
+		
   // Chat
         if (Pos('<|CHAT|>', s) > 0) then
         begin
@@ -1253,7 +1317,6 @@ begin
             end;
             Sleep(5);
           end;
-
           s2 := s;
           Delete(s2, 1, Pos('<|FILESLIST|>', s2) + 12);
 
@@ -1488,8 +1551,10 @@ begin
             ResolutionWidth := Screen.Width;
             ResolutionHeight := Screen.Height;
 
+			
             frm_Main.Main_Socket.Socket.SendText('<|REDIRECT|><|RESOLUTION|>' + IntToStr(Screen.Width) + '<|>' + IntToStr(Screen.Height) + '<<|');
 
+			
             ReceiveBmpSize := 0;
             MyFirstBmp.Clear;
             UnPackStream.Clear;
@@ -1507,13 +1572,13 @@ begin
 
             MyFirstBmp.Position := 0;
             PackStream.LoadFromStream(MyFirstBmp);
-
+			
             CompressStream(PackStream);
             CompressStream(PackStream);
 
             PackStream.Position := 0;
             SendBMPSize := PackStream.Size;
-
+			
             Socket.SendText('<|SIZE|>' + intToStr(SendBMPSize) + '<<|' + MemoryStreamToString(PackStream));
           end;
 
@@ -1548,7 +1613,7 @@ begin
 
               Delete(s, 1, Pos('<<|', s) + 2);
               ReceivingBmp := true;
-
+			  
               Synchronize(
                 procedure
                 begin
@@ -1611,11 +1676,11 @@ begin
               MyCompareBmp.Clear;
               PackStream.Clear;
               ReceivingBmp := false;
-
+			  
             end;
-
+		
           end;
-
+		  
         end;
       except
       end;
@@ -1631,7 +1696,6 @@ begin
     FreeAndNil(MyCompareBmp);
     FreeAndNil(PackStream);
   end;
-
 end;
 
 
@@ -1646,10 +1710,10 @@ begin
   inherited;
 
   try
-
+  
     ReceivingFile := false;
     FileStream := nil;
-
+	
     while Socket.Connected do
     begin
       try
@@ -1705,16 +1769,16 @@ begin
                 end)
             else
               frm_Main.Main_Socket.Socket.SendText('<|REDIRECT|><|UPLOADPROGRESS|>' + intToStr(FileStream.Size) + '<<|');
-
+			  
             if (FileStream.Size = FileSize) then
             begin
               FreeAndNil(FileStream);
-
+			  
               if (FileExists(frm_ShareFiles.DirectoryToSaveFile)) then
                 DeleteFile(frm_ShareFiles.DirectoryToSaveFile);
-
+				
               RenameFile(frm_ShareFiles.DirectoryToSaveFile + '.tmp', frm_ShareFiles.DirectoryToSaveFile);
-
+			  
               if not (frm_Main.Viewer) then
                 frm_Main.Main_Socket.Socket.SendText('<|REDIRECT|><|UPLOADCOMPLETE|>')
               else
@@ -1726,10 +1790,10 @@ begin
                     frm_ShareFiles.SizeDownload_Label.Caption := 'Size: 0 B / 0 B';
                     Application.MessageBox('Download complete!', 'AllaKore Remote - Share Files', 64);
                   end);
-
+				  
               ReceivingFile := False;
             end;
-
+			
           end;
 
         end;
